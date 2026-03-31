@@ -335,7 +335,7 @@ export function ExerciseArtwork({
   caption
 }: {
   visualId: ExerciseVisualId;
-  /** Tailwind `from-â€¦ via-â€¦ to-â€¦` fragment for gradient mesh */
+  /** Tailwind `from-... via-... to-...` fragment for the gradient mesh. */
   meshClass: string;
   caption: string;
 }) {

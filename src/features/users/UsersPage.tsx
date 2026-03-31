@@ -1,188 +1,81 @@
-/*
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
-import { useAppState } from '../../store/AppContext';
 import { isoDate } from '../../lib/date';
 import { getTrainingStreak } from '../../lib/history';
+import { useAppState } from '../../store/AppContext';
 
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
+function completedInLastDays(dates: string[], days: number) {
+  const cutoff = Date.now() - days * 86400000;
+  return dates.filter((date) => new Date(`${date}T12:00:00`).getTime() >= cutoff).length;
 }
 
 export function UsersPage() {
-  const { users, setActiveUser, sessions, metrics, checkIns, activeUserId } = useAppState();
-  const navigate = useNavigate();
-  const [query, setQuery] = useState('');
-
-  const today = isoDate();
-
-  const filteredUsers = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const base = users.filter((u) => !u.archived);
-    if (!q) return base;
-    return base.filter((u) => u.name.toLowerCase().includes(q) || u.primaryGoalLabel.toLowerCase().includes(q));
-  }, [users, query]);
-
-  return (
-    <Layout title="Users" subtitle="Local-first profiles on this device">
-      <section className="card space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Search
-            </label>
-            <input
-              className="input mt-1"
-              placeholder="Type a name or goal…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={async () => {
-                const name = window.prompt('New user name?') ?? '';
-                if (!name.trim()) return;
-                // create via DB helper
-                const { createUserWithSeed } = await import('../../db/indexedDb');
-                await createUserWithSeed({ name });
-                navigate('/');
-              }}
-            >
-              + New user
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <div className="space-y-3">
-        {filteredUsers.map((u) => {
-          const userSessions = sessions.filter((s) => s.userId === u.id);
-          const userMetrics = metrics.filter((m) => m.userId === u.id);
-          const userCheckIns = checkIns.filter((c) => c.userId === u.id);
-          const todayCheckIn = userCheckIns.find((c) => c.date === today);
-          const latestWorkout = userSessions
-            .slice()
-            .sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
-          const latestWeight = userMetrics
-            .slice()
-            .filter((m) => m.weightKg != null)
-            .sort((a, b) => a.date.localeCompare(b.date))[userMetrics.length - 1]?.weightKg;
-
-          const completedSessions = userSessions.filter((s) => s.completed);
-          const weeklyCompletion = (() => {
-            const cutoff = new Date();
-            cutoff.setDate(cutoff.getDate() - 7);
-            const cutoffKey = cutoff.toISOString().slice(0, 10);
-            return completedSessions.filter((s) => s.date >= cutoffKey).length;
-          })();
-
-          const streak = getTrainingStreak(completedSessions);
-          const score = clamp(weeklyCompletion / 3, 0, 1);
-
-          const isActive = activeUserId === u.id;
-
-          return (
-            <article key={u.id} className="card space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-700/90 dark:text-brand-400">
-                    {u.primaryGoalLabel}
-                  </p>
-                  <h3 className="mt-1 text-xl font-bold tracking-tight">{u.name}</h3>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Today
-                  </p>
-                  <p className="mt-1 text-sm font-bold">
-                    {todayCheckIn?.checkedIn ? 'Checked in' : 'Not checked in'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    Last workout
-                  </p>
-                  <p className="mt-1 text-sm font-bold">{latestWorkout ?? '—'}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    Streak
-                  </p>
-                  <p className="mt-1 text-sm font-bold">{streak}d</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    Weight
-                  </p>
-                  <p className="mt-1 text-sm font-bold">{latestWeight != null ? `${latestWeight} kg` : '—'}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Weekly completion</p>
-                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                      {weeklyCompletion} workouts
-                    </p>
-                  </div>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                    <div className="h-full bg-brand-500" style={{ width: `${Math.round(score * 100)}%` }} />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className={`btn ${isActive ? 'bg-brand-500' : ''}`}
-                  onClick={async () => {
-                    await setActiveUser(u.id);
-                    navigate('/');
-                  }}
-                >
-                  {isActive ? 'Active' : 'Select'}
-                </button>
-              </div>
-            </article>
-          );
-        })}
-
-        {!filteredUsers.length && (
-          <p className="text-center text-sm text-slate-500 dark:text-slate-400">No users yet. Create one.</p>
-        )}
-      </div>
-    </Layout>
-  );
-}
-*/
-
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Layout } from '../../components/Layout';
-import { useAppState } from '../../store/AppContext';
-import { isoDate } from '../../lib/date';
-import { getTrainingStreak } from '../../lib/history';
-
-export function UsersPage() {
-  const { users, sessions, metrics, checkIns, activeUserId, selectUser, createUser, updateUser, archiveUser } = useAppState();
+  const { users, sessions, metrics, checkIns, achievements, settings, plans, activeUserId, selectUser, createUser, updateUser, archiveUser } = useAppState();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const today = isoDate();
+  const activeUsers = users.filter((user) => !user.archived);
 
   const filteredUsers = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return users
-      .filter((user) => !user.archived)
-      .filter((user) => !search || user.name.toLowerCase().includes(search) || user.mainGoal.toLowerCase().includes(search) || user.planType.toLowerCase().includes(search));
-  }, [query, users]);
+    return activeUsers.filter(
+      (user) => !search || user.name.toLowerCase().includes(search) || user.mainGoal.toLowerCase().includes(search) || user.planType.toLowerCase().includes(search)
+    );
+  }, [activeUsers, query]);
+
+  const weeklyCompletedAllUsers = completedInLastDays(
+    sessions.filter((session) => session.status === 'completed').map((session) => session.date),
+    7
+  );
+  const usersWithActiveCheckpoint = new Set(sessions.filter((session) => session.status === 'inProgress').map((session) => session.userId)).size;
+  const readyUsers = settings.filter((setting) => setting.onboardingComplete).length;
+  const recentAchievements = achievements.slice(-5).reverse();
 
   return (
-    <Layout title="Users" subtitle="Choose the active local profile on this device.">
+    <Layout title="Profiles" subtitle="Choose a user, create a new one, or review how every active profile is progressing on this device.">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="card">
+          <p className="section-title">Active profiles</p>
+          <p className="mt-2 text-2xl font-bold">{activeUsers.length}</p>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{readyUsers} ready with onboarding completed</p>
+        </div>
+        <div className="card">
+          <p className="section-title">Live checkpoints</p>
+          <p className="mt-2 text-2xl font-bold">{usersWithActiveCheckpoint}</p>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Profiles with an in-progress workout to resume</p>
+        </div>
+        <div className="card">
+          <p className="section-title">This week</p>
+          <p className="mt-2 text-2xl font-bold">{weeklyCompletedAllUsers}</p>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Completed sessions across all active users</p>
+        </div>
+        <div className="card">
+          <p className="section-title">Achievements</p>
+          <p className="mt-2 text-2xl font-bold">{achievements.length}</p>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Milestones earned on this browser</p>
+        </div>
+      </div>
+
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Recent wins</h2>
+          <span className="metric-chip">{recentAchievements.length} recent</span>
+        </div>
+        {recentAchievements.length ? (
+          recentAchievements.map((achievement) => {
+            const user = users.find((item) => item.id === achievement.userId);
+            return (
+              <p key={achievement.id} className="text-sm">
+                <span className="font-medium">{user?.name ?? 'User'}:</span> {achievement.title}
+              </p>
+            );
+          })
+        ) : (
+          <p className="text-sm text-slate-500">Achievements will appear here as users train and log progress.</p>
+        )}
+      </section>
+
       <section className="card space-y-3">
         <label className="block">
           <span className="section-title">Search</span>
@@ -207,11 +100,22 @@ export function UsersPage() {
         const userSessions = sessions.filter((session) => session.userId === user.id);
         const userMetrics = metrics.filter((metric) => metric.userId === user.id);
         const userCheckIns = checkIns.filter((checkIn) => checkIn.userId === user.id);
-        const lastWorkout = userSessions.filter((session) => session.status === 'completed').sort((a, b) => b.date.localeCompare(a.date))[0];
-        const lastWeight = userMetrics.filter((metric) => metric.weightKg != null).sort((a, b) => b.date.localeCompare(a.date))[0];
+        const userAchievements = achievements.filter((achievement) => achievement.userId === user.id);
+        const userSettings = settings.find((setting) => setting.userId === user.id);
+        const userPlan = plans.find((plan) => plan.userId === user.id);
+        const inProgress = userSessions.find((session) => session.status === 'inProgress');
+        const checkpointTask = inProgress?.tasks[inProgress.currentTaskIndex];
+        const checkpointExercise = checkpointTask ? userPlan?.exerciseTemplates.find((item) => item.id === checkpointTask.exerciseId) : null;
+        const lastWorkout = userSessions.filter((session) => session.status === 'completed').sort((left, right) => right.date.localeCompare(left.date))[0];
+        const lastWeight = userMetrics.filter((metric) => metric.weightKg != null).sort((left, right) => right.date.localeCompare(left.date))[0];
         const todayCheckIn = userCheckIns.find((checkIn) => checkIn.date === today);
-        const completedWeek = userSessions.filter((session) => session.status === 'completed' && new Date(`${session.date}T12:00:00`).getTime() >= Date.now() - 7 * 86400000).length;
+        const completedWeek = completedInLastDays(
+          userSessions.filter((session) => session.status === 'completed').map((session) => session.date),
+          7
+        );
         const streak = getTrainingStreak(userSessions);
+        const destination = inProgress ? '/workout' : userSettings?.onboardingComplete ? '/dashboard' : '/onboarding';
+        const primaryActionLabel = inProgress ? 'Resume checkpoint' : userSettings?.onboardingComplete ? 'Open dashboard' : 'Continue onboarding';
 
         return (
           <article key={user.id} className="card space-y-4">
@@ -245,6 +149,24 @@ export function UsersPage() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-brand-200 bg-brand-50/70 p-3 text-sm dark:border-brand-900/40 dark:bg-brand-950/20">
+              <p className="section-title">Current checkpoint</p>
+              <p className="mt-2 font-semibold">
+                {inProgress
+                  ? `${checkpointExercise?.name ?? 'Workout step'} | ${inProgress.currentTaskIndex + 1}/${inProgress.tasks.length}`
+                  : userSettings?.onboardingComplete
+                    ? 'Ready to continue from the saved day and progress.'
+                    : 'Needs onboarding before a personalized plan is finalized.'}
+              </p>
+              <p className="mt-1 text-slate-600 dark:text-slate-300">
+                {inProgress
+                  ? `Resume ${user.name}'s saved session exactly where it left off.`
+                  : userSettings?.onboardingComplete
+                    ? 'Selecting this user opens the personal dashboard with saved settings and plan state.'
+                    : 'Finish onboarding to generate the personalized program for this user.'}
+              </p>
+            </div>
+
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
               <div className="flex items-center justify-between text-sm">
                 <span>Weekly completion</span>
@@ -253,6 +175,7 @@ export function UsersPage() {
               <div className="mt-2 h-2 rounded-full bg-slate-200 dark:bg-slate-800">
                 <div className="h-full rounded-full bg-brand-500" style={{ width: `${Math.min(100, (completedWeek / 3) * 100)}%` }} />
               </div>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{userAchievements.length} achievements earned</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -261,10 +184,10 @@ export function UsersPage() {
                 className="btn"
                 onClick={async () => {
                   await selectUser(user.id);
-                  navigate('/dashboard');
+                  navigate(destination);
                 }}
               >
-                Select user
+                {primaryActionLabel}
               </button>
               <button
                 type="button"
@@ -272,7 +195,7 @@ export function UsersPage() {
                 onClick={async () => {
                   const nextName = window.prompt('Edit user name', user.name);
                   if (!nextName) return;
-                  await updateUser({ ...user, name: nextName });
+                  await updateUser({ ...user, name: nextName.trim() || user.name });
                 }}
               >
                 Edit
@@ -301,7 +224,8 @@ export function UsersPage() {
           </article>
         );
       })}
+
+      {!filteredUsers.length ? <p className="text-center text-sm text-slate-500">No profiles match that search yet.</p> : null}
     </Layout>
   );
 }
-

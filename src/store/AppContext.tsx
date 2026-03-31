@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type {
   AppDataSnapshot,
   AppSettings,
@@ -33,7 +33,17 @@ import {
 import { defaultOnboarding, defaultSettings } from '../data/seed';
 import { deriveAchievements } from '../lib/coach/achievements';
 import { generatePlanForUser } from '../lib/coach/planGenerator';
-import { buildCoachSuggestions } from '../lib/coach/recommendations';
+import {
+  EMPTY_SNAPSHOT,
+  archiveUserInSnapshot,
+  createUserProfile,
+  describeMainGoal,
+  mergeSettingsPatch,
+  updateSnapshotActiveUser,
+  upsertSnapshotRecord,
+  upsertSnapshotRecords
+} from './actions/snapshotActions';
+import { selectActiveAppState } from './selectors/appSelectors';
 
 type AppState = {
   loading: boolean;
@@ -79,103 +89,281 @@ type AppState = {
 
 const AppContext = createContext<AppState | null>(null);
 
+async function syncDerivedAchievements(snapshot: AppDataSnapshot): Promise<AppDataSnapshot> {
+  const existingIds = new Set(snapshot.achievements.map((achievement) => achievement.id));
+  const missingAchievements = snapshot.users.flatMap((user) =>
+    deriveAchievements(user.id, {
+      sessions: snapshot.sessions.filter((session) => session.userId === user.id),
+      skillLogs: snapshot.skillLogs.filter((log) => log.userId === user.id),
+      checkIns: snapshot.checkIns.filter((checkIn) => checkIn.userId === user.id)
+    })
+  ).filter((achievement) => !existingIds.has(achievement.id));
+
+  if (!missingAchievements.length) {
+    return snapshot;
+  }
+
+  await Promise.all(missingAchievements.map((achievement) => saveAchievement(achievement)));
+  return upsertSnapshotRecords(snapshot, 'achievements', missingAchievements);
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [snapshot, setSnapshot] = useState<AppDataSnapshot>({
-    users: [],
-    activeUserId: null,
-    onboardings: [],
-    coachProfiles: [],
-    plans: [],
-    sessions: [],
-    skillLogs: [],
-    metrics: [],
-    checkIns: [],
-    achievements: [],
-    journalEntries: [],
-    settings: [],
-    exportedAt: new Date().toISOString()
-  });
+  const [snapshot, setSnapshot] = useState<AppDataSnapshot>(EMPTY_SNAPSHOT);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
-    await initializeSeedIfNeeded();
-    const next = await getSnapshot();
-    const groupedAchievements = next.users.flatMap((user) =>
-      deriveAchievements(user.id, {
-        sessions: next.sessions.filter((session) => session.userId === user.id),
-        skillLogs: next.skillLogs.filter((log) => log.userId === user.id),
-        checkIns: next.checkIns.filter((checkIn) => checkIn.userId === user.id)
-      })
-    );
-    for (const achievement of groupedAchievements) {
-      await saveAchievement(achievement);
+    try {
+      await initializeSeedIfNeeded();
+      const nextSnapshot = await getSnapshot();
+      const syncedSnapshot = await syncDerivedAchievements(nextSnapshot);
+      setSnapshot(syncedSnapshot);
+    } finally {
+      setLoading(false);
     }
-    const finalSnapshot = await getSnapshot();
-    setSnapshot(finalSnapshot);
-    setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
-  const activeUser = useMemo(
-    () => snapshot.users.find((user) => user.id === snapshot.activeUserId && !user.archived) ?? null,
-    [snapshot.activeUserId, snapshot.users]
-  );
-  const activeOnboarding = useMemo(
-    () => snapshot.onboardings.find((item) => item.userId === snapshot.activeUserId) ?? null,
-    [snapshot.activeUserId, snapshot.onboardings]
-  );
-  const activeCoachProfile = useMemo(
-    () => snapshot.coachProfiles.find((item) => item.userId === snapshot.activeUserId) ?? null,
-    [snapshot.activeUserId, snapshot.coachProfiles]
-  );
-  const activePlan = useMemo(
-    () => snapshot.plans.find((plan) => plan.userId === snapshot.activeUserId) ?? null,
-    [snapshot.activeUserId, snapshot.plans]
-  );
-  const activeSessions = useMemo(
-    () => snapshot.sessions.filter((session) => session.userId === snapshot.activeUserId),
-    [snapshot.activeUserId, snapshot.sessions]
-  );
-  const activeSkillLogs = useMemo(
-    () => snapshot.skillLogs.filter((log) => log.userId === snapshot.activeUserId),
-    [snapshot.activeUserId, snapshot.skillLogs]
-  );
-  const activeMetrics = useMemo(
-    () => snapshot.metrics.filter((metric) => metric.userId === snapshot.activeUserId),
-    [snapshot.activeUserId, snapshot.metrics]
-  );
-  const activeCheckIns = useMemo(
-    () => snapshot.checkIns.filter((checkIn) => checkIn.userId === snapshot.activeUserId),
-    [snapshot.activeUserId, snapshot.checkIns]
-  );
-  const activeSettings = useMemo(
-    () => snapshot.settings.find((setting) => setting.userId === snapshot.activeUserId) ?? null,
-    [snapshot.activeUserId, snapshot.settings]
-  );
-  const activeJournalEntries = useMemo(
-    () => snapshot.journalEntries.filter((entry) => entry.userId === snapshot.activeUserId).sort((a, b) => b.date.localeCompare(a.date)),
-    [snapshot.activeUserId, snapshot.journalEntries]
-  );
-  const activeSuggestions = useMemo(
-    () =>
-      buildCoachSuggestions({
-        coachProfile: activeCoachProfile ?? undefined,
-        plan: activePlan ?? undefined,
-        sessions: activeSessions,
-        checkIns: activeCheckIns,
-        skillLogs: activeSkillLogs,
-        metrics: activeMetrics
-      }),
-    [activeCoachProfile, activePlan, activeSessions, activeCheckIns, activeSkillLogs, activeMetrics]
-  );
+  const activeState = useMemo(() => selectActiveAppState(snapshot), [snapshot]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', Boolean(activeSettings?.darkMode));
-  }, [activeSettings?.darkMode]);
+    document.documentElement.classList.toggle('dark', Boolean(activeState.activeSettings?.darkMode));
+  }, [activeState.activeSettings?.darkMode]);
+
+  const selectUser = useCallback(async (userId: string | null) => {
+    await setActiveUserId(userId);
+    setSnapshot((current) => updateSnapshotActiveUser(current, userId));
+  }, []);
+
+  const createUser = useCallback(async (name: string) => {
+    const user = createUserProfile(name);
+    const onboarding = defaultOnboarding(user.id);
+    const settings = defaultSettings(user.id);
+
+    await Promise.all([
+      saveUserProfile(user),
+      saveOnboarding(onboarding),
+      saveSettings(settings),
+      setActiveUserId(user.id)
+    ]);
+
+    setSnapshot((current) => {
+      let nextSnapshot = upsertSnapshotRecord(current, 'users', user);
+      nextSnapshot = upsertSnapshotRecord(nextSnapshot, 'onboardings', onboarding);
+      nextSnapshot = upsertSnapshotRecord(nextSnapshot, 'settings', settings);
+      return updateSnapshotActiveUser(nextSnapshot, user.id);
+    });
+
+    return user;
+  }, []);
+
+  const updateUser = useCallback(async (user: UserProfile) => {
+    await saveUserProfile(user);
+    setSnapshot((current) => upsertSnapshotRecord(current, 'users', user));
+  }, []);
+
+  const archiveUser = useCallback(
+    async (userId: string) => {
+      const user = snapshot.users.find((item) => item.id === userId);
+      if (!user) {
+        return;
+      }
+
+      await saveUserProfile({ ...user, archived: true });
+      if (snapshot.activeUserId === userId) {
+        await setActiveUserId(null);
+      }
+
+      setSnapshot((current) => archiveUserInSnapshot(current, userId));
+    },
+    [snapshot.activeUserId, snapshot.users]
+  );
+
+  const saveOnboardingForActive = useCallback(
+    async (onboarding: UserOnboarding) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const nextOnboarding: UserOnboarding = {
+        ...onboarding,
+        userId: activeState.activeUser.id,
+        completedAt: now
+      };
+      const updatedUser: UserProfile = {
+        ...activeState.activeUser,
+        age: nextOnboarding.basicProfile.age,
+        sex: nextOnboarding.basicProfile.sex,
+        heightCm: nextOnboarding.basicProfile.heightCm,
+        mainGoal: describeMainGoal(nextOnboarding)
+      };
+      const generated = generatePlanForUser(updatedUser, nextOnboarding);
+      const nextUser: UserProfile = {
+        ...updatedUser,
+        currentPhase: generated.coachProfile.currentPhase,
+        planType: generated.coachProfile.planType
+      };
+      const nextSettings = mergeSettingsPatch(
+        activeState.activeSettings ?? defaultSettings(activeState.activeUser.id),
+        { onboardingComplete: true }
+      );
+
+      await Promise.all([
+        saveUserProfile(nextUser),
+        saveOnboarding(nextOnboarding),
+        saveCoachProfile(generated.coachProfile),
+        savePlan(generated.plan),
+        saveSettings(nextSettings)
+      ]);
+
+      setSnapshot((current) => {
+        let nextSnapshot = upsertSnapshotRecord(current, 'users', nextUser);
+        nextSnapshot = upsertSnapshotRecord(nextSnapshot, 'onboardings', nextOnboarding);
+        nextSnapshot = upsertSnapshotRecord(nextSnapshot, 'coachProfiles', generated.coachProfile);
+        nextSnapshot = upsertSnapshotRecord(nextSnapshot, 'plans', generated.plan);
+        return upsertSnapshotRecord(nextSnapshot, 'settings', nextSettings);
+      });
+    },
+    [activeState.activeSettings, activeState.activeUser]
+  );
+
+  const regeneratePlanForActive = useCallback(async () => {
+    if (!activeState.activeUser || !activeState.activeOnboarding) {
+      return;
+    }
+
+    const generated = generatePlanForUser(activeState.activeUser, activeState.activeOnboarding);
+    const nextUser: UserProfile = {
+      ...activeState.activeUser,
+      currentPhase: generated.coachProfile.currentPhase,
+      planType: generated.coachProfile.planType
+    };
+
+    await Promise.all([
+      saveUserProfile(nextUser),
+      saveCoachProfile(generated.coachProfile),
+      savePlan(generated.plan)
+    ]);
+
+    setSnapshot((current) => {
+      let nextSnapshot = upsertSnapshotRecord(current, 'users', nextUser);
+      nextSnapshot = upsertSnapshotRecord(nextSnapshot, 'coachProfiles', generated.coachProfile);
+      return upsertSnapshotRecord(nextSnapshot, 'plans', generated.plan);
+    });
+  }, [activeState.activeOnboarding, activeState.activeUser]);
+
+  const saveSessionForActive = useCallback(
+    async (session: WorkoutSession) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const nextSession = {
+        ...session,
+        userId: activeState.activeUser.id
+      };
+      await saveSession(nextSession);
+      setSnapshot((current) => upsertSnapshotRecord(current, 'sessions', nextSession));
+    },
+    [activeState.activeUser]
+  );
+
+  const saveSkillLogForActive = useCallback(
+    async (log: Omit<SkillLog, 'userId'>) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const nextLog = {
+        ...log,
+        userId: activeState.activeUser.id
+      };
+      await saveSkillLog(nextLog);
+      setSnapshot((current) => upsertSnapshotRecord(current, 'skillLogs', nextLog));
+    },
+    [activeState.activeUser]
+  );
+
+  const saveMetricLogForActive = useCallback(
+    async (log: Omit<BodyMetricLog, 'userId'>) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const nextLog = {
+        ...log,
+        userId: activeState.activeUser.id
+      };
+      await saveMetricLog(nextLog);
+      setSnapshot((current) => upsertSnapshotRecord(current, 'metrics', nextLog));
+    },
+    [activeState.activeUser]
+  );
+
+  const saveCheckInForActive = useCallback(
+    async (checkIn: Omit<CheckInLog, 'userId'>) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const nextCheckIn = {
+        ...checkIn,
+        userId: activeState.activeUser.id
+      };
+      await saveCheckIn(nextCheckIn);
+      setSnapshot((current) => upsertSnapshotRecord(current, 'checkIns', nextCheckIn));
+    },
+    [activeState.activeUser]
+  );
+
+  const saveJournalEntryForActive = useCallback(
+    async (entry: Omit<JournalEntry, 'userId'>) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const nextEntry = {
+        ...entry,
+        userId: activeState.activeUser.id
+      };
+      await saveJournalEntry(nextEntry);
+      setSnapshot((current) => upsertSnapshotRecord(current, 'journalEntries', nextEntry));
+    },
+    [activeState.activeUser]
+  );
+
+  const updateActiveSettings = useCallback(
+    async (patch: Partial<AppSettings>) => {
+      if (!activeState.activeUser) {
+        return;
+      }
+
+      const nextSettings = mergeSettingsPatch(
+        activeState.activeSettings ?? defaultSettings(activeState.activeUser.id),
+        patch
+      );
+      await saveSettings(nextSettings);
+      setSnapshot((current) => upsertSnapshotRecord(current, 'settings', nextSettings));
+    },
+    [activeState.activeSettings, activeState.activeUser]
+  );
+
+  const importSnapshot = useCallback(
+    async (nextSnapshot: AppDataSnapshot) => {
+      await replaceAllData(nextSnapshot);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const resetData = useCallback(async () => {
+    await resetAllData();
+    await refresh();
+  }, [refresh]);
 
   const value = useMemo<AppState>(
     () => ({
@@ -183,17 +371,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       refresh,
       users: snapshot.users,
       activeUserId: snapshot.activeUserId,
-      activeUser,
-      activeOnboarding,
-      activeCoachProfile,
-      activePlan,
-      activeSessions,
-      activeSkillLogs,
-      activeMetrics,
-      activeCheckIns,
-      activeSettings,
-      activeJournalEntries,
-      activeSuggestions,
+      activeUser: activeState.activeUser,
+      activeOnboarding: activeState.activeOnboarding,
+      activeCoachProfile: activeState.activeCoachProfile,
+      activePlan: activeState.activePlan,
+      activeSessions: activeState.activeSessions,
+      activeSkillLogs: activeState.activeSkillLogs,
+      activeMetrics: activeState.activeMetrics,
+      activeCheckIns: activeState.activeCheckIns,
+      activeSettings: activeState.activeSettings,
+      activeJournalEntries: activeState.activeJournalEntries,
+      activeSuggestions: activeState.activeSuggestions,
       onboardings: snapshot.onboardings,
       coachProfiles: snapshot.coachProfiles,
       plans: snapshot.plans,
@@ -204,121 +392,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       achievements: snapshot.achievements,
       journalEntries: snapshot.journalEntries,
       settings: snapshot.settings,
-      selectUser: async (userId) => {
-        await setActiveUserId(userId);
-        await refresh();
-      },
-      createUser: async (name) => {
-        const now = new Date().toISOString();
-        const user: UserProfile = {
-          id: crypto.randomUUID(),
-          name: name.trim() || 'New user',
-          createdAt: now,
-          mainGoal: 'Build consistency',
-          currentPhase: 'foundation',
-          planType: 'Needs onboarding'
-        };
-        await saveUserProfile(user);
-        await saveOnboarding(defaultOnboarding(user.id));
-        await saveSettings(defaultSettings(user.id));
-        await setActiveUserId(user.id);
-        await refresh();
-        return user;
-      },
-      updateUser: async (user) => {
-        await saveUserProfile(user);
-        await refresh();
-      },
-      archiveUser: async (userId) => {
-        const user = snapshot.users.find((item) => item.id === userId);
-        if (!user) return;
-        await saveUserProfile({ ...user, archived: true });
-        if (snapshot.activeUserId === userId) {
-          await setActiveUserId(null);
-        }
-        await refresh();
-      },
-      saveOnboardingForActive: async (onboarding) => {
-        if (!activeUser) return;
-        const updatedUser: UserProfile = {
-          ...activeUser,
-          age: onboarding.basicProfile.age,
-          sex: onboarding.basicProfile.sex,
-          heightCm: onboarding.basicProfile.heightCm,
-          mainGoal: onboarding.skillGoals['Muscle-up'] ? 'Muscle-up + personalized strength' : 'Personalized training',
-          currentPhase: activeUser.currentPhase,
-          planType: activeUser.planType
-        };
-        const generated = generatePlanForUser(updatedUser, onboarding);
-        await saveUserProfile({ ...updatedUser, currentPhase: generated.coachProfile.currentPhase, planType: generated.coachProfile.planType });
-        await saveOnboarding({ ...onboarding, userId: activeUser.id, completedAt: new Date().toISOString() });
-        await saveCoachProfile(generated.coachProfile);
-        await savePlan(generated.plan);
-        if (activeSettings) {
-          await saveSettings({ ...activeSettings, onboardingComplete: true });
-        }
-        await refresh();
-      },
-      regeneratePlanForActive: async () => {
-        if (!activeUser || !activeOnboarding) return;
-        const generated = generatePlanForUser(activeUser, activeOnboarding);
-        await saveCoachProfile(generated.coachProfile);
-        await savePlan(generated.plan);
-        await refresh();
-      },
-      saveSessionForActive: async (session) => {
-        if (!activeUser) return;
-        await saveSession({ ...session, userId: activeUser.id });
-        await refresh();
-      },
-      saveSkillLogForActive: async (log) => {
-        if (!activeUser) return;
-        await saveSkillLog({ ...log, userId: activeUser.id });
-        await refresh();
-      },
-      saveMetricLogForActive: async (log) => {
-        if (!activeUser) return;
-        await saveMetricLog({ ...log, userId: activeUser.id });
-        await refresh();
-      },
-      saveCheckInForActive: async (checkIn) => {
-        if (!activeUser) return;
-        await saveCheckIn({ ...checkIn, userId: activeUser.id });
-        await refresh();
-      },
-      saveJournalEntryForActive: async (entry) => {
-        if (!activeUser) return;
-        await saveJournalEntry({ ...entry, userId: activeUser.id });
-        await refresh();
-      },
-      updateActiveSettings: async (patch) => {
-        if (!activeSettings || !activeUser) return;
-        await saveSettings({ ...activeSettings, ...patch, userId: activeUser.id });
-        await refresh();
-      },
-      importSnapshot: async (nextSnapshot) => {
-        await replaceAllData(nextSnapshot);
-        await refresh();
-      },
-      resetData: async () => {
-        await resetAllData();
-        await refresh();
-      }
+      selectUser,
+      createUser,
+      updateUser,
+      archiveUser,
+      saveOnboardingForActive,
+      regeneratePlanForActive,
+      saveSessionForActive,
+      saveSkillLogForActive,
+      saveMetricLogForActive,
+      saveCheckInForActive,
+      saveJournalEntryForActive,
+      updateActiveSettings,
+      importSnapshot,
+      resetData
     }),
     [
+      activeState,
+      archiveUser,
+      createUser,
+      importSnapshot,
       loading,
+      refresh,
+      regeneratePlanForActive,
+      resetData,
+      saveCheckInForActive,
+      saveJournalEntryForActive,
+      saveMetricLogForActive,
+      saveOnboardingForActive,
+      saveSessionForActive,
+      saveSkillLogForActive,
+      selectUser,
       snapshot,
-      activeUser,
-      activeOnboarding,
-      activeCoachProfile,
-      activePlan,
-      activeSessions,
-      activeSkillLogs,
-      activeMetrics,
-      activeCheckIns,
-      activeSettings,
-      activeJournalEntries,
-      activeSuggestions
+      updateActiveSettings,
+      updateUser
     ]
   );
 
@@ -327,6 +434,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 export function useAppState(): AppState {
   const context = useContext(AppContext);
-  if (!context) throw new Error('useAppState must be used in AppProvider');
+  if (!context) {
+    throw new Error('useAppState must be used in AppProvider');
+  }
   return context;
 }

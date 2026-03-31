@@ -6,9 +6,11 @@ function cycleOrder(order: number, delta: -1 | 1, total: number): number {
 }
 
 export function useWorkoutPlan() {
-  const { activePlan, activeSettings, updateActiveSettings } = useAppState();
+  const { activePlan, activeSettings, activeSessions, updateActiveSettings } = useAppState();
 
-  const activeOrder = activeSettings?.activeWorkoutDayOrder ?? 1;
+  const inProgressSession = activeSessions.find((session) => session.status === 'inProgress');
+  const inProgressDayOrder = inProgressSession ? activePlan?.days.find((day) => day.id === inProgressSession.workoutDayId)?.order : undefined;
+  const activeOrder = inProgressDayOrder ?? activeSettings?.activeWorkoutDayOrder ?? 1;
   const dayCount = activePlan?.days.length ?? 1;
 
   const activeDay = useMemo(

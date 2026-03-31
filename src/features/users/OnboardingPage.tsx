@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import { useAppState } from '../../store/AppContext';
@@ -6,13 +6,10 @@ import type { UserOnboarding } from '../../types/models';
 
 const steps = ['Basics', 'Availability', 'Experience', 'Goals', 'Health'];
 
-export function OnboardingPage() {
-  const { activeOnboarding, saveOnboardingForActive, activeUser } = useAppState();
-  const navigate = useNavigate();
-  const [step, setStep] = useState(0);
-  const [form, setForm] = useState<UserOnboarding>(() => activeOnboarding ?? {
-    id: 'missing',
-    userId: activeUser?.id ?? 'missing',
+function createFallbackOnboarding(userId: string): UserOnboarding {
+  return {
+    id: `onboarding-${userId}`,
+    userId,
     basicProfile: {},
     trainingAvailability: {
       daysPerWeek: 3,
@@ -42,9 +39,22 @@ export function OnboardingPage() {
     },
     nutrition: {},
     lifestyle: {}
-  });
+  };
+}
+
+export function OnboardingPage() {
+  const { activeOnboarding, saveOnboardingForActive, activeUser } = useAppState();
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  const [form, setForm] = useState<UserOnboarding>(() => activeOnboarding ?? createFallbackOnboarding(activeUser?.id ?? 'missing'));
 
   const progress = useMemo(() => Math.round(((step + 1) / steps.length) * 100), [step]);
+
+  useEffect(() => {
+    if (!activeUser) return;
+    setForm(activeOnboarding ?? createFallbackOnboarding(activeUser.id));
+    setStep(0);
+  }, [activeOnboarding, activeUser]);
 
   return (
     <Layout title="Onboarding" subtitle="Build a local coaching profile for this user.">

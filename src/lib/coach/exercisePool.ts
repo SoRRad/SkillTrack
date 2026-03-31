@@ -1,15 +1,7 @@
-import type { ExerciseTemplate, GoalKey, MovementPattern, SkillName, TrainingAccess, UserGoalProfile, UserOnboarding } from '../../types/models';
+import type { ExerciseTemplate, GoalKey, SkillName, TrainingAccess, UserGoalProfile, UserOnboarding } from '../../types/models';
+import { resolveExerciseImageUrl } from '../../data/exerciseImages';
 import { applySafetyAdjustments } from './safetyAdjustments';
 import { tuneExerciseTemplate } from './setRepRecommendations';
-
-const imageByPattern: Record<MovementPattern, string> = {
-  pull: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=1200&q=80',
-  push: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=1200&q=80',
-  legs: 'https://images.unsplash.com/photo-1434682881908-b43d0467b798?auto=format&fit=crop&w=1200&q=80',
-  core: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=1200&q=80',
-  mobility: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=1200&q=80',
-  mixed: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=1200&q=80'
-};
 
 type PoolTemplate = Omit<ExerciseTemplate, 'imageUrl'> & { access: TrainingAccess[]; tags?: Array<GoalKey | SkillName | 'shoulder-friendly' | 'home-friendly'> };
 
@@ -80,7 +72,7 @@ export function selectExercises(params: { focus: string; onboarding: UserOnboard
         tuneExerciseTemplate(
           {
             ...template,
-            imageUrl: imageByPattern[template.movementPattern],
+            imageUrl: resolveExerciseImageUrl(template.id, template.movementPattern),
             substitutions: template.substitutions ?? [],
             regressions: template.regressions ?? [],
             progressions: template.progressions ?? [],
