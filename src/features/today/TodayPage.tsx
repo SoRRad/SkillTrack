@@ -90,18 +90,20 @@ export function TodayPage() {
 
   return (
     <Layout title="Today" subtitle="Training day">
-      <section className="card space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <button type="button" className="btn-secondary px-3 py-2 text-sm" onClick={goToPreviousDay}>
+      <section className="card space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <button type="button" className="btn-secondary order-2 w-full sm:order-1 sm:w-auto" onClick={goToPreviousDay}>
             ← Previous day
           </button>
-          <div className="flex gap-1">
+          <div className="order-1 flex flex-1 justify-center gap-2 sm:order-2">
             {([1, 2, 3] as const).map((n) => (
               <button
                 key={n}
                 type="button"
-                className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                  activeOrder === n ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                className={`tap-target min-h-[48px] min-w-[52px] flex-1 rounded-2xl px-2 text-sm font-bold transition sm:flex-none sm:px-4 ${
+                  activeOrder === n
+                    ? 'bg-brand-600 text-white shadow-md ring-2 ring-brand-400/40 dark:bg-brand-500'
+                    : 'card-muted text-slate-800 dark:text-slate-100'
                 }`}
                 onClick={() => setActiveDayOrder(n)}
               >
@@ -109,16 +111,16 @@ export function TodayPage() {
               </button>
             ))}
           </div>
-          <button type="button" className="btn-secondary px-3 py-2 text-sm" onClick={goToNextDay}>
+          <button type="button" className="btn-secondary order-3 w-full sm:w-auto" onClick={goToNextDay}>
             Next day →
           </button>
         </div>
         <div>
-          <h2 className="text-lg font-semibold">{activeDay.name}</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{activeDay.focus}</p>
+          <h2 className="text-xl font-bold tracking-tight">{activeDay.name}</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{activeDay.focus}</p>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Move day-by-day through your rotation. Logging always uses the day shown above—not the calendar alone.
+        <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          Swipe your rotation day-by-day. What you log always matches the session shown here — not the calendar alone.
         </p>
       </section>
 
@@ -147,14 +149,14 @@ export function TodayPage() {
       })}
 
       <section className="card space-y-3">
-        <label className="block text-xs font-medium text-slate-500">Workout note</label>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Workout note</label>
         <textarea
-          className="input min-h-[88px]"
+          className="input min-h-[100px] resize-y"
           placeholder="Overall session: energy, sleep, what to adjust next time…"
           value={workoutNote}
           onChange={(e) => setWorkoutNote(e.target.value)}
         />
-        <button type="button" className="btn w-full" onClick={() => void completeWorkout()}>
+        <button type="button" className="btn w-full text-base shadow-lg" onClick={() => void completeWorkout()}>
           Complete workout
         </button>
       </section>

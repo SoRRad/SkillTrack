@@ -24,7 +24,10 @@ export function DashboardPage() {
         <StatCard label="Sessions logged" value={`${completedSessions.length}`} hint="All completed workouts in your logbook" />
       </div>
 
-      <Link to="/today" className="card block bg-brand-500/10 text-center font-medium text-brand-800 ring-1 ring-brand-500/30 dark:bg-brand-500/15 dark:text-brand-100">
+      <Link
+        to="/today"
+        className="card block bg-gradient-to-br from-brand-500/15 via-brand-600/10 to-teal-500/10 py-5 text-center text-base font-bold text-brand-900 shadow-md ring-2 ring-brand-500/20 transition active:scale-[0.99] dark:from-brand-500/20 dark:via-brand-600/15 dark:to-teal-900/20 dark:text-brand-100 dark:ring-brand-400/25"
+      >
         Open Today → log this session in order
       </Link>
 
