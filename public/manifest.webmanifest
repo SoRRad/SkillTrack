@@ -1,0 +1,11 @@
+{
+  "name": "SkillTrack",
+  "short_name": "SkillTrack",
+  "description": "Local-first workout and skill progression tracker",
+  "start_url": "/SkillTrack/",
+  "scope": "/SkillTrack/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#14b8a6",
+  "orientation": "portrait-primary"
+}
