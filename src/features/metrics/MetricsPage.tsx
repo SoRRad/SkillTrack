@@ -1,12 +1,14 @@
+/*
 import { useMemo, useState } from 'react';
 import { Layout } from '../../components/Layout';
 import { useAppState } from '../../store/AppContext';
 import { isoDate } from '../../lib/date';
 
+<<<<<<< ours
 const energyLabels = ['1 — drained', '2 — low', '3 — ok', '4 — good', '5 — great'] as const;
 
 export function MetricsPage() {
-  const { metrics, sessions, addMetricLog } = useAppState();
+  const { activeMetrics: metrics, activeSessions: sessions, addMetricLog } = useAppState();
   const [form, setForm] = useState({ date: isoDate(), weightKg: '', waistCm: '', sleepHours: '', energyLevel: 3 as 1 | 2 | 3 | 4 | 5, note: '' });
 
   const weightSeries = useMemo(() => metrics.filter((m) => m.weightKg != null).sort((a, b) => a.date.localeCompare(b.date)), [metrics]);
@@ -83,16 +85,49 @@ export function MetricsPage() {
           className="btn w-full"
           onClick={() =>
             void addMetricLog({
+=======
+export function MetricsPage() {
+  const { metrics, sessions, addMetricLog } = useAppState();
+  const [form, setForm] = useState({ date: isoDate(), weightKg: '', waistCm: '', sleepHours: '', energyLevel: '3', note: '' });
+
+  const trend = useMemo(() => metrics.filter((m) => m.weightKg).slice(-7), [metrics]);
+
+  return (
+    <Layout title="Metrics">
+      <section className="card space-y-2">
+        <h2 className="font-semibold">Log daily metrics</h2>
+        <input className="input" type="date" value={form.date} onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder="Weight kg" type="number" value={form.weightKg} onChange={(e) => setForm((prev) => ({ ...prev, weightKg: e.target.value }))} />
+          <input className="input" placeholder="Waist cm" type="number" value={form.waistCm} onChange={(e) => setForm((prev) => ({ ...prev, waistCm: e.target.value }))} />
+          <input className="input" placeholder="Sleep hours" type="number" value={form.sleepHours} onChange={(e) => setForm((prev) => ({ ...prev, sleepHours: e.target.value }))} />
+          <select className="input" value={form.energyLevel} onChange={(e) => setForm((prev) => ({ ...prev, energyLevel: e.target.value }))}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+        <textarea className="input" placeholder="Note" value={form.note} onChange={(e) => setForm((prev) => ({ ...prev, note: e.target.value }))} />
+        <button
+          className="btn"
+          onClick={() =>
+            addMetricLog({
+>>>>>>> theirs
               id: crypto.randomUUID(),
               date: form.date,
               weightKg: form.weightKg ? Number(form.weightKg) : undefined,
               waistCm: form.waistCm ? Number(form.waistCm) : undefined,
               sleepHours: form.sleepHours ? Number(form.sleepHours) : undefined,
+<<<<<<< ours
               energyLevel: form.energyLevel,
+=======
+              energyLevel: Number(form.energyLevel) as 1 | 2 | 3 | 4 | 5,
+>>>>>>> theirs
               note: form.note || undefined
             })
           }
         >
+<<<<<<< ours
           Save entry
         </button>
       </section>
@@ -129,6 +164,75 @@ export function MetricsPage() {
         <h2 className="font-semibold">Workout volume</h2>
         <p className="text-sm">Completed sessions (all time): {sessions.filter((s) => s.completed).length}</p>
         <p className="text-xs text-slate-500">Skill history lives on the Skills page; training sessions on Logbook.</p>
+=======
+          Save metrics
+        </button>
+      </section>
+
+      <section className="card">
+        <h2 className="font-semibold">Body weight trend (recent)</h2>
+        {trend.length ? trend.map((entry) => <p key={entry.id} className="text-sm">{entry.date}: {entry.weightKg} kg</p>) : <p className="text-sm text-slate-500">No entries yet.</p>}
+      </section>
+
+      <section className="card">
+        <h2 className="font-semibold">Workout completion trend</h2>
+        <p className="text-sm">Completed sessions: {sessions.filter((s) => s.completed).length}</p>
+>>>>>>> theirs
+      </section>
+    </Layout>
+  );
+}
+*/
+
+import { useMemo, useState } from 'react';
+import { Layout } from '../../components/Layout';
+import { useAppState } from '../../store/AppContext';
+import { isoDate } from '../../lib/date';
+
+export function MetricsPage() {
+  const { activeMetrics, activeSessions, saveMetricLogForActive } = useAppState();
+  const [form, setForm] = useState({ date: isoDate(), weightKg: '', waistCm: '', sleepHours: '', energyLevel: '3', note: '' });
+
+  const trend = useMemo(() => activeMetrics.filter((metric) => metric.weightKg != null).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7), [activeMetrics]);
+
+  return (
+    <Layout title="Metrics" subtitle="Fast body metrics logging with local history.">
+      <section className="card space-y-3">
+        <input className="input" type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder="Weight kg" type="number" value={form.weightKg} onChange={(event) => setForm({ ...form, weightKg: event.target.value })} />
+          <input className="input" placeholder="Waist cm" type="number" value={form.waistCm} onChange={(event) => setForm({ ...form, waistCm: event.target.value })} />
+          <input className="input" placeholder="Sleep hours" type="number" value={form.sleepHours} onChange={(event) => setForm({ ...form, sleepHours: event.target.value })} />
+          <input className="input" placeholder="Energy 1-5" type="number" min={1} max={5} value={form.energyLevel} onChange={(event) => setForm({ ...form, energyLevel: event.target.value })} />
+        </div>
+        <textarea className="input min-h-[88px]" placeholder="Daily note" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
+        <button
+          type="button"
+          className="btn w-full"
+          onClick={() =>
+            void saveMetricLogForActive({
+              id: crypto.randomUUID(),
+              date: form.date,
+              weightKg: form.weightKg ? Number(form.weightKg) : undefined,
+              waistCm: form.waistCm ? Number(form.waistCm) : undefined,
+              sleepHours: form.sleepHours ? Number(form.sleepHours) : undefined,
+              energyLevel: Number(form.energyLevel) as 1 | 2 | 3 | 4 | 5,
+              note: form.note || undefined
+            })
+          }
+        >
+          Save metric entry
+        </button>
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Recent weight trend</h2>
+        {trend.length ? trend.map((entry) => <p key={entry.id} className="text-sm">{entry.date}: {entry.weightKg} kg</p>) : <p className="text-sm text-slate-500">No weight entries yet.</p>}
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Training volume</h2>
+        <p className="text-sm">Completed sessions: {activeSessions.filter((session) => session.status === 'completed').length}</p>
       </section>
     </Layout>
   );

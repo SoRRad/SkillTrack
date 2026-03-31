@@ -1,65 +1,49 @@
-import type { ExerciseTemplate, WorkoutSession } from '../types/models';
+import type { ExerciseSetLog, ExerciseTemplate, WorkoutSession } from '../types/models';
 
-/** Last completed session for this program day that included this exercise. */
-export function getPreviousSessionForExercise(
-  exerciseId: string,
-  workoutDayId: string,
-  sessions: WorkoutSession[]
-): WorkoutSession | null {
-  const sorted = sessions
-    .filter((s) => s.completed && s.workoutDayId === workoutDayId)
-    .sort((a, b) => b.date.localeCompare(a.date));
-  return sorted.find((s) => s.setLogs.some((l) => l.exerciseId === exerciseId)) ?? null;
+function getTaskLogs(session: WorkoutSession, exerciseId: string): ExerciseSetLog[] {
+  const task = session.tasks.find((item) => item.exerciseId === exerciseId);
+  return task ? [...task.setLogs].sort((a, b) => a.setIndex - b.setIndex) : [];
+}
+
+export function getPreviousSessionForExercise(exerciseId: string, sessions: WorkoutSession[]): WorkoutSession | null {
+  return sessions
+    .filter((session) => session.status === 'completed' && session.tasks.some((task) => task.exerciseId === exerciseId))
+    .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
 }
 
 export function formatPreviousSets(exercise: ExerciseTemplate, session: WorkoutSession | null): string | null {
   if (!session) return null;
-  const logs = session.setLogs
-    .filter((l) => l.exerciseId === exercise.id && !l.skipped)
-    .sort((a, b) => a.setIndex - b.setIndex);
+  const logs = getTaskLogs(session, exercise.id).filter((log) => !log.skipped);
   if (!logs.length) return null;
-
-  const parts = logs.map((l) => {
-    if (exercise.targetType === 'holdDuration') {
-      return `${l.holdSeconds ?? '—'}s`;
-    }
-    if (exercise.targetType === 'weightedReps') {
-      const w = l.weightKg != null ? `${l.weightKg}kg` : 'bw';
-      return `${l.reps ?? '—'}@${w}`;
-    }
-    if (exercise.targetType === 'bodyweightReps' || exercise.targetType === 'mobility') {
-      return `${l.reps ?? '—'} reps`;
-    }
-    return 'logged';
+  const parts = logs.map((log) => {
+    if (exercise.targetType === 'holdDuration') return `${log.holdSeconds ?? '-'}s`;
+    if (exercise.targetType === 'weightedReps') return `${log.reps ?? '-'} @ ${log.weightKg ?? 0}kg`;
+    return `${log.reps ?? '-'} reps`;
   });
-  return `Last time (${session.date}): ${parts.join(' · ')}`;
+  return `Last ${session.date}: ${parts.join(' | ')}`;
 }
 
-/** Best estimated 1rm-style max weight for an exercise (simple max kg across sets). */
+export function getExerciseLastWeight(exerciseId: string, sessions: WorkoutSession[]): number | undefined {
+  const previous = getPreviousSessionForExercise(exerciseId, sessions);
+  const log = previous ? getTaskLogs(previous, exerciseId).find((item) => item.weightKg != null && !item.skipped) : undefined;
+  return log?.weightKg;
+}
+
 export function getBestWeightKg(exerciseId: string, sessions: WorkoutSession[]): number | null {
-  let max: number | null = null;
-  sessions.forEach((s) => {
-    s.setLogs.forEach((l) => {
-      if (l.exerciseId !== exerciseId || l.skipped || l.weightKg == null) return;
-      if (max === null || l.weightKg > max) max = l.weightKg;
-    });
-  });
-  return max;
+  const weights = sessions.flatMap((session) => getTaskLogs(session, exerciseId).map((log) => log.weightKg).filter((weight): weight is number => weight != null));
+  return weights.length ? Math.max(...weights) : null;
 }
 
-/** Consecutive days with a completed workout, counting backward from your most recent session. */
 export function getTrainingStreak(sessions: WorkoutSession[]): number {
-  const days = [...new Set(sessions.filter((s) => s.completed).map((s) => s.date))].sort((a, b) =>
-    b.localeCompare(a)
-  );
+  const days = [...new Set(sessions.filter((session) => session.status === 'completed').map((session) => session.date))].sort((a, b) => b.localeCompare(a));
   if (!days.length) return 0;
   let streak = 1;
-  for (let i = 1; i < days.length; i++) {
-    const newer = new Date(days[i - 1] + 'T12:00:00');
-    const older = new Date(days[i] + 'T12:00:00');
-    const diffDays = Math.round((newer.getTime() - older.getTime()) / 86400000);
-    if (diffDays === 1) streak++;
-    else break;
+  for (let index = 1; index < days.length; index += 1) {
+    const newer = new Date(`${days[index - 1]}T12:00:00`);
+    const older = new Date(`${days[index]}T12:00:00`);
+    const diff = Math.round((newer.getTime() - older.getTime()) / 86400000);
+    if (diff !== 1) break;
+    streak += 1;
   }
   return streak;
 }

@@ -1,53 +1,53 @@
 import { useCallback, useMemo } from 'react';
 import { useAppState } from '../store/AppContext';
 
-function cycleOrder(order: 1 | 2 | 3, delta: -1 | 1): 1 | 2 | 3 {
-  return ((((order - 1 + delta) % 3) + 3) % 3) + 1 as 1 | 2 | 3;
+function cycleOrder(order: number, delta: -1 | 1, total: number): number {
+  return ((((order - 1 + delta) % total) + total) % total) + 1;
 }
 
 export function useWorkoutPlan() {
-  const { plan, settings, updateSettings } = useAppState();
+  const { activePlan, activeSettings, updateActiveSettings } = useAppState();
 
-  const activeOrder = settings.activeWorkoutDayOrder;
+  const activeOrder = activeSettings?.activeWorkoutDayOrder ?? 1;
+  const dayCount = activePlan?.days.length ?? 1;
 
   const activeDay = useMemo(
-    () => plan.days.find((d) => d.order === activeOrder) ?? plan.days[0],
-    [plan.days, activeOrder]
+    () => activePlan?.days.find((day) => day.order === activeOrder) ?? activePlan?.days[0] ?? null,
+    [activeOrder, activePlan]
   );
-
   const nextDay = useMemo(
-    () => plan.days.find((d) => d.order === cycleOrder(activeOrder, 1)) ?? plan.days[0],
-    [plan.days, activeOrder]
+    () => activePlan?.days.find((day) => day.order === cycleOrder(activeOrder, 1, dayCount)) ?? activePlan?.days[0] ?? null,
+    [activeOrder, activePlan, dayCount]
   );
-
-  const prevDay = useMemo(
-    () => plan.days.find((d) => d.order === cycleOrder(activeOrder, -1)) ?? plan.days[0],
-    [plan.days, activeOrder]
+  const previousDay = useMemo(
+    () => activePlan?.days.find((day) => day.order === cycleOrder(activeOrder, -1, dayCount)) ?? activePlan?.days[0] ?? null,
+    [activeOrder, activePlan, dayCount]
   );
-
-  const goToPreviousDay = useCallback(() => {
-    void updateSettings({ activeWorkoutDayOrder: cycleOrder(activeOrder, -1) });
-  }, [activeOrder, updateSettings]);
-
-  const goToNextDay = useCallback(() => {
-    void updateSettings({ activeWorkoutDayOrder: cycleOrder(activeOrder, 1) });
-  }, [activeOrder, updateSettings]);
 
   const setActiveDayOrder = useCallback(
-    (order: 1 | 2 | 3) => {
-      void updateSettings({ activeWorkoutDayOrder: order });
+    (order: number) => {
+      if (!activeSettings) return;
+      void updateActiveSettings({ activeWorkoutDayOrder: order });
     },
-    [updateSettings]
+    [activeSettings, updateActiveSettings]
   );
 
+  const goToNextDay = useCallback(() => {
+    setActiveDayOrder(cycleOrder(activeOrder, 1, dayCount));
+  }, [activeOrder, dayCount, setActiveDayOrder]);
+
+  const goToPreviousDay = useCallback(() => {
+    setActiveDayOrder(cycleOrder(activeOrder, -1, dayCount));
+  }, [activeOrder, dayCount, setActiveDayOrder]);
+
   return {
-    plan,
+    plan: activePlan,
     activeDay,
-    activeOrder,
     nextDay,
-    prevDay,
-    goToPreviousDay,
+    previousDay,
+    activeOrder,
     goToNextDay,
+    goToPreviousDay,
     setActiveDayOrder
   };
 }
