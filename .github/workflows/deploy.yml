@@ -1,11 +1,15 @@
-# Uses current major versions of GitHub-maintained actions (Node 24 runtime) to avoid
-# "Node.js 20 actions are deprecated" warnings/failures on GitHub-hosted runners.
+# upload-pages-artifact@v4 still pins actions/upload-artifact@v4.6.2 (Node 20 runtime).
+# Until GitHub ships a new release with a Node-24-based upload-artifact pin, opt in globally:
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
